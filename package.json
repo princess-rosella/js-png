@@ -1,0 +1,19 @@
+{
+  "name": "js-png",
+  "version": "0.0.1",
+  "description": "Javascript PNG library",
+  "main": "index.js",
+  "dependencies": {
+    "pngjs": "^3.3.3"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "build": "tsc -p lib.tsconfig.json",
+    "test": "tsc -p tests.tsconfig.json && node tests.out/tests/index.js"
+  },
+  "bin": {
+    "png-dump-chunks": "./dist/png-dump-chunks.js"
+  },
+  "author": "Princess Rosella",
+  "license": "MIT"
+}
