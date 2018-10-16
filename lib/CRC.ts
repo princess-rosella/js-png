@@ -24,29 +24,31 @@
  * @LICENSE_HEADER_END@
  */
 
-import { PNGFile, PNGDelegate } from "./index";
-import { Chunk } from "./Chunk";
-import fs from "fs";
+const crcTable: Uint32Array = (function() {
+    const table = new Uint32Array(256);
 
-function readFileSync(path: string) {
-    const nodeBuffer = fs.readFileSync(path);
-    return nodeBuffer.buffer.slice(nodeBuffer.byteOffset, nodeBuffer.byteOffset + nodeBuffer.byteLength);    
-}
+    for (let i = 0; i < 256; i++) {
+        let currentCrc = i;
 
-class ChunkDumper implements PNGDelegate {
-    public chunk?(chunk: Chunk, buffer: ArrayBuffer): void {
-        console.log(chunk);
+        for (var j = 0; j < 8; j++) {
+            if (currentCrc & 1)
+                currentCrc = 0xedb88320 ^ (currentCrc >>> 1);
+            else
+                currentCrc = currentCrc >>> 1;
+        }
+        
+        table[i] = currentCrc;
     }
-};
 
-for (const arg of process.argv.slice(2)) {
-    try {
-        const buffer = readFileSync(arg);
-        const file = PNGFile.parse(buffer, new ChunkDumper());
+    return table;
+}());
 
-        console.log(file.dpi);
-    }
-    catch (e) {
-        console.error(e);
-    }
+export function crc32(buffer: Uint8Array) {
+    const length = buffer.length;
+    let   crc    = -1;
+
+    for (let index = 0; index < length; index++)
+        crc = crcTable[(crc ^ buffer[index]) & 0xff] ^ (crc >>> 8);
+
+    return crc ^ -1;
 }

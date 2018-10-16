@@ -24,27 +24,35 @@
  * @LICENSE_HEADER_END@
  */
 
-import { PNGImage }                from "./PNGImage";
+import { PNGImageWithPalette }     from "./PNGImage";
 import { PNGPixelComponentAccess } from "./PNGPixelComponentAccess"
 import { RGBA }                    from "./ChunkPalette";
+import { ChunkHeader }             from "./Chunk";
 import { ChunkTransparency }       from "./ChunkTransparency";
 
-export class PNGImageIndexed implements PNGImage {
-    width:  number;
-    height: number;
+export class PNGImageIndexed implements PNGImageWithPalette {
+    width:        number;
+    height:       number;
+    pixelsAccess: PNGPixelComponentAccess;
+    header:       ChunkHeader;
 
     getPixel:  (x: number, y: number) => Readonly<RGBA>;
     copyPixel: (x: number, y: number, rgba: RGBA) => RGBA;
     setPixel:  (x: number, y: number, rgba: Readonly<RGBA>) => void;
 
+    getIndex: (x: number, y: number) => number;
+    setIndex: (x: number, y: number, index: number) => void;
+
     readonly palette: ReadonlyArray<RGBA>;
 
-    constructor(width: number, height: number, widthLine: number, pixels: PNGPixelComponentAccess, palette: ReadonlyArray<RGBA>, transparency?: ChunkTransparency) {
+    constructor(header: ChunkHeader, width: number, height: number, widthLine: number, pixels: PNGPixelComponentAccess, palette: ReadonlyArray<RGBA>, transparency?: ChunkTransparency) {
         const w = widthLine;
 
-        this.width   = width;
-        this.height  = height;
-        this.palette = palette;
+        this.width        = width;
+        this.height       = height;
+        this.palette      = palette;
+        this.pixelsAccess = pixels;
+        this.header       = header;
 
         const rgbaPalette = palette;
 
@@ -63,9 +71,21 @@ export class PNGImageIndexed implements PNGImage {
 
             pixels.set((y * w) + x, index);
         };
+
+        this.getIndex = function(x, y) {
+            return pixels.get((y * w) + x);
+        };
+
+        this.setIndex = function(x, y, index) {
+            pixels.set((y * w) + x, index);
+        };
     }
 
     get hasPalette(): boolean {
         return true;
+    }
+
+    get pixels(): Uint8Array | DataView {
+        return this.pixelsAccess.pixels;     
     }
 }

@@ -29,8 +29,24 @@ import { Chunk, ChunkHeader } from "./Chunk";
 export class ChunkGamma extends Chunk {
     gamma: number;
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
-        this.gamma = view.getUint32(offset, false);
+    constructor(gamma: number) {
+        super("gAMA");
+        this.gamma = gamma;
+    }
+    
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkGamma {
+        return new ChunkGamma(view.getUint32(offset, false));
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        return 4;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+        view.setUint32(offset, this.gamma, false);
+    }
+
+    chunkClone(): ChunkGamma {
+        return new ChunkGamma(this.gamma);
     }
 }

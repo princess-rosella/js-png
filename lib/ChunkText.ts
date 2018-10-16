@@ -24,51 +24,179 @@
  * @LICENSE_HEADER_END@
  */
 
-import { inflateSync as inflate } from "zlib";
+import { inflateSync as inflate, deflateSync as deflate } from "zlib";
 import { Chunk, ChunkHeader } from "./Chunk";
-import { readLatin1String } from "./Latin1";
-import { readLatin1OrUtf8String } from "./UTF8";
+import { readLatin1String, writeLatin1String, isLatin1 } from "./EncodingLatin1";
+import { readLatin1OrUtf8String, lengthUtf8String, writeUtf8String } from "./EncodingUTF8";
 
 export class ChunkText extends Chunk {
     keyword:           string;
     compression?:      number;
     lang?:             string;
     keywordLocalized?: string;
-    text:              string;
+    textCompressed?:   ArrayBuffer;
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
+    private textI: string;
+
+    constructor(type: string, keyword: string, text: string, compression?: number, lang?: string, keywordLocalized?: string, textCompressed?: ArrayBuffer) {
+        super(type);
+        this.keyword          = keyword;
+        this.textI            = text;
+        this.compression      = compression;
+        this.lang             = lang;
+        this.keywordLocalized = keywordLocalized;
+        this.textCompressed   = textCompressed;
+    }
+
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkText {
+        let keyword: string | undefined;
+        let lang: string | undefined;
+        let text: string;
+        let compression: number | undefined;
+        let keywordLocalized: string | undefined;
+        let textCompressed: ArrayBuffer | undefined;
 
         const end = offset + length;
-        [this.keyword, offset] = readLatin1String(view, offset, end);
+        [keyword, offset] = readLatin1String(view, offset, end);
 
         if (type === "iTXt") {
-            this.compression = view.getUint8(offset++);
+            compression = view.getUint8(offset++);
             offset++;
-            [this.lang,             offset] = readLatin1String(view, offset, end);
-            [this.keywordLocalized, offset] = readLatin1OrUtf8String(view, offset, end);
+            [lang,             offset] = readLatin1String(view, offset, end);
+            [keywordLocalized, offset] = readLatin1OrUtf8String(view, offset, end);
+
+            if (compression === 0) {
+                [text, offset] = readLatin1OrUtf8String(view, offset, end);
+            }
+            else if (compression === 1) {
+                textCompressed = view.buffer.slice(offset, end);
+                const buffer   = inflate(textCompressed);
+                [text, ] = readLatin1OrUtf8String(new DataView(buffer.buffer), buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+            }
+            else
+                throw new Error("Unsupported text fragment");
+        }
+        else if (type === "tEXt") {
+            [text, offset] = readLatin1String(view, offset, end);
+        }
+        else if (type === "zTXt") {
+            compression    = view.getUint8(offset++);
+            textCompressed = view.buffer.slice(offset, end);
+            const buffer        = inflate(textCompressed);
+            [text, ]      = readLatin1String(new DataView(buffer.buffer), buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+        }
+        else
+            throw new Error("Unsupported text fragment");
+
+        return new ChunkText(type, keyword, text, compression, lang, keywordLocalized, textCompressed);
+    }
+
+    get isCompressed(): boolean {
+        if (this.type === "zTXt")
+            return true;
+        else if (this.compression === 1)
+            return true;
+
+        return false;
+    }
+
+    get text(): string {
+        return this.textI;
+    }
+
+    set text(newValue: string) {
+        if (this.textI === newValue)
+            return;
+
+        this.text = newValue;
+
+        if (this.isCompressed)
+            this.regenerateCompressedText();
+    }
+
+    private regenerateCompressedText() {
+        const latin1 = (this.type !== "iTXT") && isLatin1(this.textI);
+        let   length = 0;
+
+        if (latin1)
+            length = this.textI.length;
+        else
+            length = lengthUtf8String(this.textI);
+
+        const view = new DataView(new ArrayBuffer(length));
+
+        if (latin1)
+            writeLatin1String(view, 0, this.textI, false);
+        else
+            writeUtf8String(view, 0, this.textI, false);
+
+        const buffer = deflate(view.buffer, { level: 9 });
+        this.textCompressed = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        const type   = this.type;
+        let   length = this.keyword.length + 1;
+
+        if (type === "iTXt") {
+            length += 2; // compression
+            length += this.lang!.length + 1;
+
+            if (this.keywordLocalized)
+                length += lengthUtf8String(this.keywordLocalized) + 1;
+            else
+                length++;
 
             if (this.compression === 0) {
-                [this.text, offset] = readLatin1OrUtf8String(view, offset, end);
+                length += lengthUtf8String(this.textI);
+            }
+            else if (this.compression === 1) {
+                length += this.textCompressed!.byteLength;
+            }
+        }
+        else if (type === "tEXt") {
+            length += this.textI.length;
+        }
+        else if (type === "zTXt") {
+            length += 1; // compression
+            length += this.textCompressed!.byteLength;
+        }
+
+        return length;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+        const type = this.type;
+
+        offset = writeLatin1String(view, offset, this.keyword);
+
+        if (type === "iTXt") {
+            view.setUint8(offset++, this.compression!);
+            offset++;
+            offset = writeLatin1String(view, offset, this.lang!);
+            offset = writeUtf8String(view, offset, this.keywordLocalized!);
+
+            if (this.compression === 0) {
+                offset = writeUtf8String(view, offset, this.textI, false);
                 return;
             }
             else if (this.compression === 1) {
-                const buffer  = inflate(view.buffer.slice(offset, end));
-                [this.text, ] = readLatin1OrUtf8String(new DataView(buffer.buffer), buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+                (new Uint8Array(view.buffer, view.byteOffset + offset, this.textCompressed!.byteLength)).set(new Uint8Array(this.textCompressed!));
                 return;
             }
         }
         else if (type === "tEXt") {
-            [this.text, offset] = readLatin1String(view, offset, end);
+            offset = writeLatin1String(view, offset, this.textI, false);
             return;
         }
         else if (type === "zTXt") {
-            this.compression = view.getUint8(offset++);
-            const buffer     = inflate(view.buffer.slice(offset, end));
-            [this.text, ]    = readLatin1String(new DataView(buffer.buffer), buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+            view.setUint8(offset++, this.compression!);
+            (new Uint8Array(view.buffer, view.byteOffset + offset, this.textCompressed!.byteLength)).set(new Uint8Array(this.textCompressed!));
             return;
         }
+    }
 
-        throw new Error("Unsupported text fragment");
+    chunkClone(): ChunkText {
+        return new ChunkText(this.type, this.keyword, this.textI, this.compression, this.lang, this.keywordLocalized, this.textCompressed);
     }
 }

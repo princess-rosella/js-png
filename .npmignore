@@ -1,0 +1,6 @@
+lib
+lib.tsconfig.json
+tests
+tests.out
+tests.tsconfig.json
+.vscode

@@ -26,7 +26,7 @@
 
 import { Chunk, ChunkHeader } from "./Chunk";
 import { ChunkTransparency }  from "./ChunkTransparency";
-import { readLatin1String }   from "./Latin1";
+import { readLatin1String, writeLatin1String } from "./EncodingLatin1";
 
 export interface RGB {
     r: number;
@@ -50,23 +50,29 @@ export interface RGBAFrequency {
 }
 
 export class ChunkPalette extends Chunk {
-    colors: Readonly<RGB>[] = [];
+    colors: Readonly<RGB>[];
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
+    constructor(colors: Readonly<RGB>[]) {
+        super("PLTE");
+        this.colors = colors;
+    }
 
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkPalette {
         const colorCount = (length / 3)|0;
+        const colors: RGB[] = [];
         for (let colorIndex = 0; colorIndex < colorCount; colorIndex++, offset += 3) {
             const r = view.getUint8(offset);
             const g = view.getUint8(offset + 1);
             const b = view.getUint8(offset + 2);
 
-            this.colors.push({
+            colors.push({
                 r: r / 255.0,
                 g: g / 255.0,
                 b: b / 255.0,
             });
         }
+
+        return new ChunkPalette(colors);
     }
 
     createRGBAPalette(transparency?: ChunkTransparency): ReadonlyArray<RGBA> {
@@ -108,18 +114,55 @@ export class ChunkPalette extends Chunk {
 
         return Object.freeze(rgbaPalette);
     }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        return this.colors.length * 3;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+        for (const color of this.colors) {
+            view.setUint8(offset++, (color.r * 255)|0);
+            view.setUint8(offset++, (color.g * 255)|0);
+            view.setUint8(offset++, (color.b * 255)|0);
+        }
+    }
+
+    chunkClone(): ChunkPalette {
+        return new ChunkPalette(this.colors.slice(0));
+    }
 }
 
 export class ChunkPaletteHistogram extends Chunk {
-    colors: number[] = [];
+    colors: number[];
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
+    constructor(colors: number[]) {
+        super("hIST");
+        this.colors = colors;
+    }
 
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkPaletteHistogram {
         const colorCount = (length / 2)|0;
+        const colors: number[] = [];
         for (let colorIndex = 0; colorIndex < colorCount; colorIndex++, offset += 2) {
-            this.colors.push(view.getUint16(offset, false));
+            colors.push(view.getUint16(offset, false));
         }
+
+        return new ChunkPaletteHistogram(colors);
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        return this.colors.length * 2;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+        for (const color of this.colors) {
+            view.setUint16(offset, color, false);
+            offset += 2;
+        }
+    }
+
+    chunkClone(): ChunkPaletteHistogram {
+        return new ChunkPaletteHistogram(this.colors.slice(0));
     }
 }
 
@@ -128,20 +171,27 @@ export class ChunkPaletteSuggestion extends Chunk {
     depth:  number;
     colors: Readonly<RGBAFrequency>[] = [];
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
+    constructor(name: string, depth: number, colors: Readonly<RGBAFrequency>[]) {
+        super("sPLT");
+        this.name   = name;
+        this.depth  = depth;
+        this.colors = colors;
+    }
 
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkPaletteSuggestion {
         const end = offset + length;
-        [this.name, offset] = readLatin1String(view, offset, end);
-        this.depth = view.getUint8(offset++);
+        let name: string;
+        [name, offset] = readLatin1String(view, offset, end);
 
-        const pixelSize  = (this.depth / 8)|0;
+        const depth      = view.getUint8(offset++);
+        const pixelSize  = (depth / 8)|0;
         const entrySize  = (4 * pixelSize) + 2;
         const colorCount = ((end - offset) / entrySize)|0;
+        const colors: Readonly<RGBAFrequency>[] = [];
 
         for (let colorIndex = 0; colorIndex < colorCount; colorIndex++, offset += entrySize) {
             if (pixelSize === 2) {
-                this.colors.push({
+                colors.push({
                     r:         (view.getUint16(offset + 0, false) / 65535.0),
                     g:         (view.getUint16(offset + 2, false) / 65535.0),
                     b:         (view.getUint16(offset + 4, false) / 65535.0),
@@ -150,7 +200,7 @@ export class ChunkPaletteSuggestion extends Chunk {
                 });
             }
             else {
-                this.colors.push({
+                colors.push({
                     r:         (view.getUint8(offset + 0) / 255.0),
                     g:         (view.getUint8(offset + 1) / 255.0),
                     b:         (view.getUint8(offset + 2) / 255.0),
@@ -159,5 +209,47 @@ export class ChunkPaletteSuggestion extends Chunk {
                 });
             }
         }
+
+        return new ChunkPaletteSuggestion(name, depth, colors);
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        const pixelSize  = (this.depth / 8)|0;
+        const entrySize  = (4 * pixelSize) + 2;
+
+        return 1 +                    // depth
+               this.name.length + 1 + // name
+               entrySize * this.colors.length;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+        const pixelSize  = (this.depth / 8)|0;
+        const entrySize  = (4 * pixelSize) + 2;
+
+        offset = writeLatin1String(view, offset, this.name);
+        view.setUint8(offset++, this.depth);
+
+        for (const color of this.colors) {
+            if (pixelSize === 2) {
+                view.setUint16(offset + 0, (color.r * 65535)|0, false);
+                view.setUint16(offset + 2, (color.g * 65535)|0, false);
+                view.setUint16(offset + 4, (color.b * 65535)|0, false);
+                view.setUint16(offset + 6, (color.a * 65535)|0, false);
+                view.setUint16(offset + 8, color.frequency,     false);
+            }
+            else {
+                view.setUint8 (offset + 0, (color.r * 255)|0);
+                view.setUint8 (offset + 1, (color.g * 255)|0);
+                view.setUint8 (offset + 2, (color.b * 255)|0);
+                view.setUint8 (offset + 3, (color.a * 255)|0);
+                view.setUint16(offset + 4, color.frequency,   false);
+            }
+
+            offset += entrySize;
+        }
+    }
+
+    chunkClone(): ChunkPaletteSuggestion {
+        return new ChunkPaletteSuggestion(this.name, this.depth, this.colors.slice(0));
     }
 }

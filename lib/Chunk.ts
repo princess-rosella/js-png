@@ -32,6 +32,11 @@ export const enum ColorType {
     RGBA           = 6,
 }
 
+export const enum InterlaceType {
+    None = 0,
+    Adam7 = 1
+}
+
 export const enum PNGUnit {
     Unknown = 0,
     Meter   = 1,
@@ -39,22 +44,52 @@ export const enum PNGUnit {
 
 export class Chunk {
     readonly type: string;
-    length:        number;
-    crc:           number;
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        this.length = length;
+    constructor(type: string) {
         this.type = type;
-        this.crc = crc;
     }
-};
+
+    chunkComputeLength(header: ChunkHeader): number {
+        throw new Error("Pure virtual");
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {   
+        throw new Error("Pure virtual");
+    }
+
+    chunkClone(): Chunk {   
+        throw new Error("Pure virtual");
+    }
+
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): Chunk {
+        throw new Error("Not implemented");
+    }
+}
 
 export class ChunkUnknown extends Chunk {
     buffer: ArrayBuffer
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
-        this.buffer = view.buffer.slice(offset, offset + length);
+    constructor(type: string, buffer: ArrayBuffer) {
+        super(type);
+        this.buffer = buffer;
+    }
+
+    chunkClone(): ChunkUnknown {
+        return new ChunkUnknown(this.type, this.buffer.slice(0));
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        return this.buffer.byteLength;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {   
+        const dest = new Uint8Array(view.buffer, view.byteOffset + offset, view.byteLength);
+        const src  = new Uint8Array(this.buffer);
+        dest.set(src);
+    }
+
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkUnknown {
+        return new ChunkUnknown(type, view.buffer.slice(offset, offset + length));
     }
 }
 
@@ -65,28 +100,94 @@ export class ChunkHeader extends Chunk {
     colorType:   ColorType;
     compression: number;
     filter:      number;
-    interlace:   number;
+    interlace:   InterlaceType;
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
-        this.width       = view.getUint32(offset + 0, false);
-        this.height      = view.getUint32(offset + 4, false);
-        this.bitDepth    = view.getUint8(offset + 8);
-        this.colorType   = <ColorType>view.getUint8(offset + 9);
-        this.compression = view.getUint8(offset + 10);
-        this.filter      = view.getUint8(offset + 11);
-        this.interlace   = view.getUint8(offset + 12);
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkHeader {
+        return new ChunkHeader(
+            view.getUint32(offset + 0, false), // width
+            view.getUint32(offset + 4, false), // height
+            view.getUint8(offset + 8), // bitDepth
+            <ColorType>view.getUint8(offset + 9), // colorType
+            view.getUint8(offset + 10), // compresson
+            view.getUint8(offset + 11), // filter
+            view.getUint8(offset + 12), // interlace
+        );
+    }
+
+    public constructor(width: number, height: number, bitDepth: number = 8, colorType: ColorType = ColorType.RGBA, compression: number = 0, filter: number = 0, interlace: InterlaceType = InterlaceType.None) {
+        super("IHDR");
+        this.width       = width;
+        this.height      = height;
+        this.bitDepth    = bitDepth;
+        this.colorType   = colorType;
+        this.compression = compression;
+        this.filter      = filter;
+        this.interlace   = interlace;
+    }
+
+    chunkClone(): ChunkHeader {
+        return new ChunkHeader(this.width, this.height, this.bitDepth, this.colorType, this.compression, this.filter, this.interlace);
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        return 13;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+        view.setUint32(offset + 0,  this.width, false);
+        view.setUint32(offset + 4,  this.height, false);
+        view.setUint8 (offset + 8,  this.bitDepth);
+        view.setUint8 (offset + 9,  this.colorType);
+        view.setUint8 (offset + 10, this.compression);
+        view.setUint8 (offset + 11, this.filter);
+        view.setUint8 (offset + 12, this.interlace);
     }
 }
 
 export class ChunkEnd extends Chunk {
+    public constructor() {
+        super("IEND");
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        return 0;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+    }
+
+    chunkClone(): ChunkEnd {
+        return this;
+    }
+
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): Chunk {
+        return new ChunkEnd();
+    }
 }
 
 export class ChunkPixelData extends Chunk {
     data: ArrayBuffer;
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
-        this.data = view.buffer.slice(offset, offset + length);
+    constructor(data: ArrayBuffer) {
+        super("IDAT");
+        this.data = data;
+    }
+
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
+        return new ChunkPixelData(view.buffer.slice(offset, offset + length));
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        return this.data.byteLength;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {   
+        const dest = new Uint8Array(view.buffer, view.byteOffset + offset, view.byteLength);
+        const src  = new Uint8Array(this.data);
+        dest.set(src);
+    }
+
+    chunkClone(): ChunkEnd {
+        return this;
     }
 }

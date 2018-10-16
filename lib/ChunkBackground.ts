@@ -32,19 +32,47 @@ export class ChunkBackground extends Chunk {
     g?: number;
     b?: number;
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
+    constructor(r: number | undefined, g: number | undefined, b: number | undefined, index: number | undefined) {
+        super("bKGD");
+        this.r = r;
+        this.g = g;
+        this.b = b;
+        this.paletteIndex = index;
+    }
 
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkBackground {
+        if (header.colorType === ColorType.Palette)
+            return new ChunkBackground(undefined, undefined, undefined, view.getUint8(offset));
+        else if (header.colorType === ColorType.Grayscale || header.colorType === ColorType.GrayscaleAlpha)
+            return new ChunkBackground(undefined, view.getUint16(offset, false), undefined, undefined);
+        else
+            return new ChunkBackground(view.getUint16(offset + 0, false), view.getUint16(offset + 2, false), view.getUint16(offset + 4, false), undefined);
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        if (header.colorType === ColorType.Palette)
+            return 1;
+        else if (header.colorType === ColorType.Grayscale || header.colorType === ColorType.GrayscaleAlpha)
+            return 2;
+        else
+            return 6;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
         if (header.colorType === ColorType.Palette) {
-            this.paletteIndex = view.getUint8(offset);
+            view.setUint8(offset, this.paletteIndex!);
         }
         else if (header.colorType === ColorType.Grayscale || header.colorType === ColorType.GrayscaleAlpha) {
-            this.g = view.getUint16(offset, false);
+            view.setUint16(offset, this.g!, false);
         }
         else {
-            this.r = view.getUint16(offset + 0, false);
-            this.g = view.getUint16(offset + 2, false);
-            this.b = view.getUint16(offset + 4, false);
+            view.setUint16(offset + 0, this.r!, false);
+            view.setUint16(offset + 2, this.g!, false);
+            view.setUint16(offset + 4, this.b!, false);
         }
+    }
+
+    chunkClone(): ChunkBackground {
+        return new ChunkBackground(this.r, this.g, this.b, this.paletteIndex);
     }
 }

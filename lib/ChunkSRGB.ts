@@ -34,10 +34,26 @@ export const enum RenderingIntent {
 }
 
 export class ChunkSRGB extends Chunk {
-    renderingIntent?: RenderingIntent;
+    renderingIntent: RenderingIntent;
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
-        this.renderingIntent = <RenderingIntent>view.getUint8(offset);
+    constructor(renderingIntent: RenderingIntent) {
+        super("sRGB");
+        this.renderingIntent = renderingIntent;
+    }
+
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkSRGB {
+        return new ChunkSRGB(<RenderingIntent>view.getUint8(offset));
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        return 1;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+        view.setUint8(offset, this.renderingIntent);
+    }
+
+    chunkClone(): ChunkSRGB {
+        return new ChunkSRGB(this.renderingIntent);
     }
 }

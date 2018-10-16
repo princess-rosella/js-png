@@ -24,7 +24,7 @@
  * @LICENSE_HEADER_END@
  */
 
-import { ColorType, Chunk, ChunkHeader, ChunkEnd, ChunkPixelData, ChunkUnknown, PNGUnit } from "./Chunk"
+import { ColorType, Chunk, ChunkHeader, ChunkEnd, ChunkPixelData, ChunkUnknown, PNGUnit, InterlaceType } from "./Chunk"
 
 import { ChunkBackground }        from "./ChunkBackground";
 import { ChunkChromatic }         from "./ChunkChromatic";
@@ -41,12 +41,14 @@ import { ChunkPalette,
          ChunkPaletteSuggestion, 
          RGBA }                   from "./ChunkPalette";
 
-import { inflateSync } from "zlib";
+import { inflateSync, deflateSync } from "zlib";
 import { unfilter1, unfilter2, unfilter3, unfilter4 } from "./Filter";
+import { crc32 } from "./CRC";
 
 import { PNGImage,
          computeLineByteWidth,
-         computeImageSize }                from "./PNGImage";
+         computeImageSize,
+         computeLinePixelWidth }           from "./PNGImage";
 import { PNGImageIndexed }                 from "./PNGImageIndexed";
 import { PNGImageGray, PNGImageGrayAlpha } from "./PNGImageGray";
 import { PNGImageRGB,  PNGImageRGBA }      from "./PNGImageRGB";
@@ -59,29 +61,28 @@ import { PNGPixelComponentAccess,
          PNGPixelComponentAccess4R,
          PNGPixelComponentAccess8,
          PNGPixelComponentAccess8R,
-         PNGPixelComponentAccess16,
-         networkOrderToNativeOrderUint16 } from "./PNGPixelComponentAccess";
+         PNGPixelComponentAccess16 } from "./PNGPixelComponentAccess";
 import { PNGImageInterlaced, getImagePasses, ImagePass } from "./PNGImageInterlaced";
 
-const chunkMap: Readonly<{ [chunkName: string]: typeof Chunk }> = Object.freeze({
-    "bKGD": ChunkBackground,
-    "cHRM": ChunkChromatic,
-    "IEND": ChunkEnd,
-    "gAMA": ChunkGamma,
-    "IHDR": ChunkHeader,
-    "iCCP": ChunkICCProfile,
-    "PLTE": ChunkPalette,
-    "hIST": ChunkPaletteHistogram,
-    "sPLT": ChunkPaletteSuggestion,
-    "pHYs": ChunkPhysicalPixels,
-    "IDAT": ChunkPixelData,
-    "iTXt": ChunkText,
-    "tEXt": ChunkText,
-    "zTXt": ChunkText,
-    "tIME": ChunkTime,
-    "tRNS": ChunkTransparency,
-    "sBIT": ChunkSignificantBits,
-    "sRGB": ChunkSRGB,
+const chunkMap: Readonly<{ [chunkName: string]: typeof Chunk.parse }> = Object.freeze({
+    "bKGD": ChunkBackground.parse,
+    "cHRM": ChunkChromatic.parse,
+    "IEND": ChunkEnd.parse,
+    "gAMA": ChunkGamma.parse,
+    "IHDR": ChunkHeader.parse,
+    "iCCP": ChunkICCProfile.parse,
+    "PLTE": ChunkPalette.parse,
+    "hIST": ChunkPaletteHistogram.parse,
+    "sPLT": ChunkPaletteSuggestion.parse,
+    "pHYs": ChunkPhysicalPixels.parse,
+    "IDAT": ChunkPixelData.parse,
+    "iTXt": ChunkText.parse,
+    "tEXt": ChunkText.parse,
+    "zTXt": ChunkText.parse,
+    "tIME": ChunkTime.parse,
+    "tRNS": ChunkTransparency.parse,
+    "sBIT": ChunkSignificantBits.parse,
+    "sRGB": ChunkSRGB.parse,
 });
 
 export interface PNGDelegate {
@@ -104,13 +105,26 @@ function inflate(buffer: ArrayBuffer): DataView {
     return new DataView(pixelsBuffer.buffer, pixelsBuffer.byteOffset, pixelsBuffer.byteLength);
 }
 
-export type AnyPixelAccess = Uint8Array | Uint16Array | PNGPixelComponentAccess;
-
 export class PNGFile {
-    private chunks: Chunk[] = [];
+    chunks: Chunk[] = [];
 
-    constructor(chunks: Chunk[]) {
+    private constructor(chunks: Chunk[]) {
         this.chunks = chunks;
+    }
+
+    public static create(header: ChunkHeader, palette?: ChunkPalette, transparency?: ChunkTransparency): PNGFile {
+        const chunks = [];
+
+        chunks.push(header);
+        
+        if (palette)
+            chunks.push(palette);
+
+        if (transparency)
+            chunks.push(transparency);
+
+        chunks.push(new ChunkEnd());
+        return new PNGFile(chunks);
     }
 
     public static parse(buffer: ArrayBuffer, delegate?: PNGDelegate): PNGFile {
@@ -119,7 +133,7 @@ export class PNGFile {
         if (!isPNGHeader(view))
             throw new Error("Not a PNG file: Invalid header");
 
-        let header!: ChunkHeader;
+        let header!: Readonly<ChunkHeader>;
         let offset = 8;
         const chunks: Chunk[] = [];
 
@@ -132,12 +146,12 @@ export class PNGFile {
 
             const chunkType = chunkMap[type];
             if (chunkType)
-                chunk = new chunkType(length, type, crc, view, offset, header);
+                chunk = chunkType(length, type, crc, view, offset, header);
             else
-                chunk = new ChunkUnknown(length, type, crc, view, offset, header);
+                chunk = ChunkUnknown.parse(length, type, crc, view, offset, header);
             
             if (type === "IHDR")
-                header = <ChunkHeader>chunk;
+                header = Object.freeze(<ChunkHeader>chunk);
 
             if (delegate && delegate.chunk)
                 delegate.chunk(chunk, buffer.slice(offset, offset + length));
@@ -147,6 +161,52 @@ export class PNGFile {
         }
 
         return new PNGFile(chunks);
+    }
+
+    public toArrayBuffer(): ArrayBuffer {
+        const header            = <ChunkHeader>this.chunks[0];
+        const lengths: number[] = [];
+        let   totalLength       = 8;
+
+        for (const chunk of this.chunks) {
+            const length = chunk.chunkComputeLength(header);
+            totalLength += (length + 12);
+            lengths.push(length);
+        }
+
+        const buffer = new ArrayBuffer(totalLength);
+        let   offset = 8;
+
+        {
+            const signature = new Uint8Array(buffer, 0, 8);
+            signature[0] = 0x89;
+            signature[1] = 0x50;
+            signature[2] = 0x4E;
+            signature[3] = 0x47;
+            signature[4] = 0x0D;
+            signature[5] = 0x0A;
+            signature[6] = 0x1A;
+            signature[7] = 0x0A;
+        }
+
+        for (const chunk of this.chunks) {
+            const length = lengths.shift()!;
+            const view   = new DataView(buffer, offset, length + 12);
+            const data   = new Uint8Array(buffer, offset + 4, length + 4);
+            const type   = chunk.type;
+
+            chunk.chunkSave(header, view, 8);
+            view.setUint32(0, length);
+            view.setUint8 (4, type.charCodeAt(0));
+            view.setUint8 (5, type.charCodeAt(1));
+            view.setUint8 (6, type.charCodeAt(2));
+            view.setUint8 (7, type.charCodeAt(3));
+            view.setUint32(length + 8, crc32(data));
+
+            offset += length + 12;
+        }
+
+        return buffer;
     }
 
     get width(): number {
@@ -252,38 +312,28 @@ export class PNGFile {
         throw new Error(`Invalid bit depth: ${this.bitDepth}`);
     }
 
-    private createPixelAccess(buffer: ArrayBuffer, needComponentAccess: boolean, rawValue: boolean): AnyPixelAccess {
-        if (needComponentAccess) {
-            switch (this.bitDepth) {
-            case 1:
-                return new PNGPixelComponentAccess1(buffer);
+    private createPixelAccess(buffer: Uint8Array, width: number, rawValue: boolean): PNGPixelComponentAccess {
+        switch (this.bitDepth) {
+        case 1:
+            return new PNGPixelComponentAccess1(buffer, width);
 
-            case 2:
-                if (rawValue)
-                    return new PNGPixelComponentAccess2R(buffer);
-                return new PNGPixelComponentAccess2(buffer);
+        case 2:
+            if (rawValue)
+                return new PNGPixelComponentAccess2R(buffer, width);
+            return new PNGPixelComponentAccess2(buffer, width);
 
-            case 4:
-                if (rawValue)
-                    return new PNGPixelComponentAccess4R(buffer);
-                return new PNGPixelComponentAccess4(buffer);
+        case 4:
+            if (rawValue)
+                return new PNGPixelComponentAccess4R(buffer, width);
+            return new PNGPixelComponentAccess4(buffer, width);
 
-            case 8:
-                if (rawValue)
-                    return new PNGPixelComponentAccess8R(buffer);
-                return new PNGPixelComponentAccess8(buffer);
+        case 8:
+            if (rawValue)
+                return new PNGPixelComponentAccess8R(buffer, width);
+            return new PNGPixelComponentAccess8(buffer, width);
 
-            case 16:
-                return new PNGPixelComponentAccess16(networkOrderToNativeOrderUint16(buffer));
-            }
-        }
-        else {
-            switch (this.bitDepth) {
-            case 8:
-                return new Uint8Array(buffer);
-            case 16:
-                return new Uint16Array(networkOrderToNativeOrderUint16(buffer));
-            }
+        case 16:
+            return new PNGPixelComponentAccess16(new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength), width);
         }
 
         throw new Error(`Invalid bit depth: ${this.bitDepth}`);
@@ -340,11 +390,12 @@ export class PNGFile {
 
     public renderImage(): PNGImage {
         let passes: ReadonlyArray<ImagePass>;
-        const height         = this.height;
-        const width          = this.width;
-        const bitDepth       = this.bitDepth;
+        const header         = <ChunkHeader>this.chunks[0];
+        const height         = header.height;
+        const width          = header.width;
+        const bitDepth       = header.bitDepth;
         const componentCount = this.componentCount;
-        const colorType      = this.colorType;
+        const colorType      = header.colorType;
 
         PNGFile.validateBitDepth(colorType, bitDepth);
 
@@ -364,8 +415,8 @@ export class PNGFile {
             }];
         }
 
-        const pixels    = this.raxPixels();
-        const pixelSize = this.pixelSize;
+        const pixels             = this.raxPixels();
+        const pixelSize          = this.pixelSize;
         const images: PNGImage[] = [];
         const transparencyChunk  = <ChunkTransparency>this.firstChunk("tRNS");
         let   palette: ReadonlyArray<RGBA> | undefined;
@@ -378,77 +429,51 @@ export class PNGFile {
             const lineInBytes     = computeLineByteWidth(pass.width, bitDepth, componentCount);
             const scanLineInBytes = lineInBytes + 1;
             let   offset          = 0;
-            let   offsetOut       = 0;
-            let   rawLine:           Uint8Array | undefined;
-            let   previousOffsetOut: number     | undefined;
+            let   previousOffset: number | undefined;
 
-            for (let y = 0; y < pass.height; y++, offset += scanLineInBytes, offsetOut += lineInBytes) {
+            for (let y = 0; y < pass.height; y++, offset += scanLineInBytes) {
                 const filterType = pixels8[offset];
-
-                if (filterType !== 0) {
-                    if (!rawLine)
-                        rawLine = new Uint8Array(lineInBytes);
-
-                    rawLine.set(pixels8.slice(offset + 1, offset + 1 + lineInBytes))
-                }
 
                 switch (filterType) {
                 case 0:
-                    pixels8.copyWithin(offsetOut, offset + 1, offset + 1 + lineInBytes);
                     break;
                 case 1:
-                    unfilter1(pixelSize, rawLine!, pixels8, offsetOut);
+                    unfilter1(pixelSize, pixels8, offset + 1, lineInBytes);
                     break;
                 case 2:
-                    unfilter2(rawLine!, pixels8, offsetOut, previousOffsetOut);
+                    unfilter2(pixels8, offset + 1, previousOffset === undefined? undefined: previousOffset + 1, lineInBytes);
                     break;
                 case 3:
-                    unfilter3(pixelSize, rawLine!, pixels8, offsetOut, previousOffsetOut);
+                    unfilter3(pixelSize, pixels8, offset + 1, previousOffset === undefined? undefined: previousOffset + 1, lineInBytes);
                     break;
                 case 4:
-                    unfilter4(pixelSize, rawLine!, pixels8, offsetOut, previousOffsetOut);
+                    unfilter4(pixelSize, pixels8, offset + 1, previousOffset === undefined? undefined: previousOffset + 1, lineInBytes);
                     break;
                 default:
                     throw new Error(`Unsupported filter type ${filterType}`);
                 }
 
-                previousOffsetOut = offsetOut;
+                pixels8[offset] = 0;
+                previousOffset  = offset;
             }
 
-            let scanLineInPixels = pass.width;
-
-            switch (bitDepth) {
-            case 1:
-                if ((scanLineInPixels % 8) !== 0)
-                    scanLineInPixels += (8 - (scanLineInPixels % 8));
-                break;
-            case 2:
-                if ((scanLineInPixels % 4) !== 0)
-                    scanLineInPixels += (4 - (scanLineInPixels % 4));
-                break;
-            case 4:
-                if ((scanLineInPixels % 2) !== 0)
-                    scanLineInPixels += (2 - (scanLineInPixels % 2));
-                break;
-            }
-
-            const pixelsBuffer = pixels.buffer.slice(pixels.byteOffset + pass.offset, pixels.byteOffset + pass.offset + offsetOut);
+            const pixelsWidth = computeLinePixelWidth(pass.width, bitDepth);
 
             switch (colorType) {
             case ColorType.Palette:
-                images.push(new PNGImageIndexed(pass.width, pass.height, scanLineInPixels, <PNGPixelComponentAccess>this.createPixelAccess(pixelsBuffer, true, true), palette!));
+                images.push(new PNGImageIndexed(header, pass.width, pass.height, pixelsWidth, this.createPixelAccess(pixels8, pixelsWidth, true), palette!));
                 break;
             case ColorType.Grayscale:
-                images.push(new PNGImageGray(pass.width, pass.height, scanLineInPixels, <PNGPixelComponentAccess>this.createPixelAccess(pixelsBuffer, true, false), transparencyChunk));
+                images.push(new PNGImageGray(header, pass.width, pass.height, pixelsWidth, this.createPixelAccess(pixels8, pixelsWidth, false), transparencyChunk));
                 break;
             case ColorType.GrayscaleAlpha:
-                images.push(new PNGImageGrayAlpha(pass.width, pass.height, <Uint8Array | Uint16Array>this.createPixelAccess(pixelsBuffer, false, false)));
+                images.push(new PNGImageGrayAlpha(header, pass.width, pass.height, this.createPixelAccess(pixels8, pixelsWidth * 2, false)));
                 break;
             case ColorType.RGB:
-                images.push(new PNGImageRGB(pass.width, pass.height, <Uint8Array | Uint16Array>this.createPixelAccess(pixelsBuffer, false, false), transparencyChunk));
+                images.push(new PNGImageRGB(header, pass.width, pass.height, this.createPixelAccess(pixels8, pixelsWidth * 3, false), transparencyChunk));
                 break;
             case ColorType.RGBA:
-                images.push(new PNGImageRGBA(pass.width, pass.height, <Uint8Array | Uint16Array>this.createPixelAccess(pixelsBuffer, false, false)));
+                images.push(new PNGImageRGBA(header, pass.width, pass.height, this.createPixelAccess(pixels8, pixelsWidth * 4, false)));
                 break;
             default:
                 throw new Error(`Unsupported color type ${this.colorType}`);
@@ -459,30 +484,88 @@ export class PNGFile {
             return images[0];
 
         if (images.length === 7)
-            return new PNGImageInterlaced(width, height, images);
+            return new PNGImageInterlaced(header, pixels, width, height, images);
 
         throw new Error(`Unknown interlacing mode: ${images.length}`);
     }
 
-    public renderImageRGBA(): PNGImageRGBA {
+    updateImage(image: PNGImage) {
+        let   indexOfFirstPixelData = this.chunks.findIndex((chunk) => chunk.type === "IDAT" || chunk.type === "IEND");
+        const newChunks = this.chunks.filter((chunk) => chunk.type === "IDAT");
+
+        const compressedBuffer = deflateSync(image.pixels.buffer, { level: 9 });
+        const blockSize        = 32767;
+        const blockCount       = Math.ceil(compressedBuffer.byteLength / blockSize)|0;
+
+        if (indexOfFirstPixelData < 0)
+            indexOfFirstPixelData = newChunks.length;
+
+        for (let block = 0; block < blockCount; block++) {
+            const blockOffset = block * blockSize;
+            const blockEnd    = Math.min(compressedBuffer.byteLength, blockOffset + blockSize);
+
+            newChunks.splice(indexOfFirstPixelData++, 0, new ChunkPixelData(compressedBuffer.buffer.slice(compressedBuffer.byteOffset + blockOffset, compressedBuffer.byteOffset + blockEnd)));
+        }
+
+        this.chunks = newChunks;
+    }
+
+    public toRGBA(): [PNGFile, PNGImageRGBA] {
         const rawImage = this.renderImage();
         if (rawImage instanceof PNGImageRGBA)
-            return rawImage;
+            return [this, rawImage];
 
-        const width      = this.width;
-        const height     = this.height;
-        const pixelCount = (width * height * 4);
-        const pixels     = this.bitDepth <= 8? new Uint8Array(pixelCount): new Uint16Array(pixelCount);
-        const rgbaImage  = new PNGImageRGBA(width, height, pixels);
+        const oldHeader  = <ChunkHeader>this.chunks[0];
+        const newHeader  = new ChunkHeader(oldHeader.width, oldHeader.height, oldHeader.bitDepth === 16? 16: 8, ColorType.RGBA, oldHeader.compression, oldHeader.filter, InterlaceType.None);
+        const bytes      = (computeLineByteWidth(newHeader.width, newHeader.bitDepth, 4) + 1) * newHeader.height;
+        const pixels     = newHeader.bitDepth === 16? new PNGPixelComponentAccess16(new DataView(new ArrayBuffer(bytes)), newHeader.width * 4): new PNGPixelComponentAccess8(new Uint8Array(new ArrayBuffer(bytes)), newHeader.width * 4);
+        const rgbaImage  = new PNGImageRGBA(newHeader, newHeader.width, newHeader.height, pixels);
         const pixel      = { r: 0, g: 0, b: 0, a: 0 };
 
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
+        for (let y = 0; y < newHeader.height; y++) {
+            for (let x = 0; x < newHeader.width; x++) {
                 rawImage.copyPixel(x, y, pixel);
                 rgbaImage.setPixel(x, y, pixel);
             }
         }
 
-        return rgbaImage;
+        const newChunks: Chunk[] = [];
+        const ignoredChunkTypes = new Set<string>([
+            "IHDR",
+            "PLTE",
+            "hIST",
+            "sPLT",
+            "tRNS",
+            "sBIT",
+            "IDAT",
+            "IEND",
+        ]);
+
+        newChunks.push(newHeader);
+
+        for (const chunk of this.chunks) {
+            if (ignoredChunkTypes.has(chunk.type))
+                continue;
+
+            newChunks.push(chunk.chunkClone());
+        }
+
+        const compressedBuffer = deflateSync(pixels.pixels.buffer, { level: 9 });
+        const blockSize        = 32767;
+        const blockCount       = Math.ceil(compressedBuffer.byteLength / blockSize)|0;
+
+        for (let block = 0; block < blockCount; block++) {
+            const blockOffset = block * blockSize;
+            const blockEnd    = Math.min(compressedBuffer.byteLength, blockOffset + blockSize);
+
+            newChunks.push(new ChunkPixelData(compressedBuffer.buffer.slice(compressedBuffer.byteOffset + blockOffset, compressedBuffer.byteOffset + blockEnd)));
+        }
+
+        newChunks.push(new ChunkEnd());
+        return [new PNGFile(newChunks), rgbaImage];
+    }
+
+    clone(): PNGFile {
+        return new PNGFile(this.chunks.map((original) => original.chunkClone()));
     }
 };

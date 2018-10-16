@@ -37,3 +37,23 @@ export function readLatin1String(view: DataView, offset: number, end: number): [
 
     return [str, offset];
 }
+
+export function writeLatin1String(view: DataView, offset: number, str: string, terminate: boolean = true): number {
+    for (let i = 0; i < str.length; i++) {
+        view.setUint8(offset++, str.charCodeAt(i));
+    }
+
+    if (terminate)
+        view.setUint8(offset++, 0)
+
+    return offset;
+}
+
+export function isLatin1(str: string): boolean {
+    for (let i = 0; i < str.length; i++) {
+        if (str.charCodeAt(i) > 127)
+            return false;
+    }
+
+    return true;
+}

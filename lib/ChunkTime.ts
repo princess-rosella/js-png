@@ -34,13 +34,40 @@ export class ChunkTime extends Chunk {
     minute: number;
     second: number;
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
-        this.year   = view.getUint16(offset, false); offset += 2;
-        this.month  = view.getUint8(offset);
-        this.day    = view.getUint8(offset);
-        this.hour   = view.getUint8(offset);
-        this.minute = view.getUint8(offset);
-        this.second = view.getUint8(offset);
+    constructor(year: number, month: number, day: number, hour: number, minute: number, second: number) {
+        super("tIME");
+        this.year   = year;
+        this.month  = month;
+        this.day    = day;
+        this.hour   = hour;
+        this.minute = minute;
+        this.second = second;
+    }
+
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
+        const year   = view.getUint16(offset, false); offset += 2;
+        const month  = view.getUint8(offset++);
+        const day    = view.getUint8(offset++);
+        const hour   = view.getUint8(offset++);
+        const minute = view.getUint8(offset++);
+        const second = view.getUint8(offset);
+        return new ChunkTime(year, month, day, hour, minute, second);
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        return 7;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+        view.setUint16(offset, this.year, false); offset += 2;
+        view.setUint8(offset++, this.month);
+        view.setUint8(offset++, this.day);
+        view.setUint8(offset++, this.hour);
+        view.setUint8(offset++, this.minute);
+        view.setUint8(offset++, this.second);
+    }
+
+    chunkClone(): ChunkTime {
+        return new ChunkTime(this.year, this.month, this.day, this.hour, this.minute, this.second);
     }
 }

@@ -1,19 +1,17 @@
 {
-  "name": "js-png",
-  "version": "0.0.1",
+  "name": "spu-png",
+  "version": "0.0.2",
   "description": "Javascript PNG library",
-  "main": "index.js",
-  "dependencies": {
-    "@types/node": "^10.11.4"
+  "main": "dist/index.js",
+  "devDependencies": {
+    "@types/node": "^10.12.0",
+    "spu-md5": "0.0.2"
   },
-  "devDependencies": {},
   "scripts": {
-    "build": "tsc -p lib.tsconfig.json",
+    "prepare": "tsc -p lib.tsconfig.json",
     "test": "tsc -p tests.tsconfig.json && node tests.out/tests/index.js"
   },
-  "bin": {
-    "png-dump-chunks": "./dist/png-dump-chunks.js"
-  },
   "author": "Princess Rosella",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {}
 }

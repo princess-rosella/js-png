@@ -27,6 +27,7 @@
 import { RGBA } from "./ChunkPalette";
 import { PNGImage,
          computeImageSize } from "./PNGImage";
+import { ChunkHeader } from "./Chunk";
 
  /**
   * This array contains the passes index where a pixel is located.
@@ -181,8 +182,12 @@ export class PNGImageInterlaced implements PNGImage {
     readonly width:  number;
     readonly height: number;
     readonly images: ReadonlyArray<PNGImage>
+    readonly pixels: Uint8Array | DataView;
+    readonly header: ChunkHeader;
 
-    constructor(width: number, height: number, images: PNGImage[]) {
+    constructor(header: ChunkHeader, pixels: Uint8Array | DataView, width: number, height: number, images: PNGImage[]) {
+        this.header = header;
+        this.pixels = pixels;
         this.width  = width;
         this.height = height;
         this.images = Object.freeze(images);

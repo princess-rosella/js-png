@@ -25,6 +25,8 @@
  */
 
 export interface PNGPixelComponentAccess {
+    readonly pixels: Uint8Array | DataView;
+
     get(offset: number): number;
     set(offset: number, value: number): void;
 }
@@ -66,21 +68,26 @@ const twoBitsShift = [
 ];
 
 export class PNGPixelComponentAccess1 implements PNGPixelComponentAccess {
-    private readonly pixels: Uint8Array;
+    readonly pixels: Uint8Array;
+    private readonly width: number;
 
-    constructor(pixels: ArrayBuffer) {
-        this.pixels = new Uint8Array(pixels);
+    constructor(pixels: Uint8Array, width: number) {
+        this.pixels = pixels;
+        this.width  = width;
     }
 
     get(offset: number): number {
-        const pos = offset >>> 3;
-        const mod = offset % 8;
+        const filterBytes = 1 + (offset / this.width)|0;
+        const pos         = filterBytes + (offset >>> 3);
+        const mod         = offset % 8;
+
         return (this.pixels[pos] >>> oneBitsShift[mod]) & 0x1;
     }
 
     set(offset: number, value: number): void {
-        const pos = offset >>> 3;
-        const mod = offset % 8;
+        const filterBytes = 1 + (offset / this.width)|0;
+        const pos         = filterBytes + (offset >>> 3);
+        const mod         = offset % 8;
 
         let current = this.pixels[pos];
         current &= ~oneBitsMask[mod];
@@ -90,21 +97,26 @@ export class PNGPixelComponentAccess1 implements PNGPixelComponentAccess {
 }
 
 export class PNGPixelComponentAccess2 implements PNGPixelComponentAccess {
-    private readonly pixels: Uint8Array;
+    readonly pixels: Uint8Array;
+    private readonly width: number;
 
-    constructor(pixels: ArrayBuffer) {
-        this.pixels = new Uint8Array(pixels);
+    constructor(pixels: Uint8Array, width: number) {
+        this.pixels = pixels;
+        this.width  = width;
     }
 
     get(offset: number): number {
-        const pos = offset >>> 2;
-        const mod = offset % 4;
+        const filterBytes = 1 + (offset / this.width)|0;
+        const pos         = filterBytes + (offset >>> 2);
+        const mod         = offset % 4;
+
         return ((this.pixels[pos] >>> twoBitsShift[mod]) & 0x3) / 3.0;
     }
 
     set(offset: number, value: number): void {
-        const pos = offset >>> 2;
-        const mod = offset % 4;
+        const filterBytes = 1 + (offset / this.width)|0;
+        const pos         = filterBytes + (offset >>> 2);
+        const mod         = offset % 4;
 
         let current = this.pixels[pos];
         current &= ~twoBitsMask[mod];
@@ -114,21 +126,25 @@ export class PNGPixelComponentAccess2 implements PNGPixelComponentAccess {
 }
 
 export class PNGPixelComponentAccess2R implements PNGPixelComponentAccess {
-    private readonly pixels: Uint8Array;
+    readonly pixels: Uint8Array;
+    private readonly width: number;
 
-    constructor(pixels: ArrayBuffer) {
-        this.pixels = new Uint8Array(pixels);
+    constructor(pixels: Uint8Array, width: number) {
+        this.pixels = pixels;
+        this.width  = width;
     }
 
     get(offset: number): number {
-        const pos = offset >>> 2;
-        const mod = offset % 4;
+        const filterBytes = 1 + (offset / this.width)|0;
+        const pos         = filterBytes + (offset >>> 2);
+        const mod         = offset % 4;
         return ((this.pixels[pos] >>> twoBitsShift[mod]) & 0x3);
     }
 
     set(offset: number, value: number): void {
-        const pos = offset >>> 2;
-        const mod = offset % 4;
+        const filterBytes = 1 + (offset / this.width)|0;
+        const pos         = filterBytes + (offset >>> 2);
+        const mod         = offset % 4;
 
         let current = this.pixels[pos];
         current &= ~twoBitsMask[mod];
@@ -138,22 +154,28 @@ export class PNGPixelComponentAccess2R implements PNGPixelComponentAccess {
 }
 
 export class PNGPixelComponentAccess4 implements PNGPixelComponentAccess {
-    private readonly pixels: Uint8Array;
+    readonly pixels: Uint8Array;
+    private readonly width:  number;
 
-    constructor(pixels: ArrayBuffer) {
-        this.pixels = new Uint8Array(pixels);
+    constructor(pixels: Uint8Array, width: number) {
+        this.pixels = pixels;
+        this.width  = width;
     }
 
     get(offset: number): number {
+        const filterBytes = 1 + (offset / this.width)|0;
+        const pos         = filterBytes + (offset >>> 1);
+
         if (offset % 2 === 0)
-            return (this.pixels[offset >>> 1] >>> 4) / 15.0;
+            return (this.pixels[pos] >>> 4) / 15.0;
         else
-            return (this.pixels[offset >>> 1] & 0xf) / 15.0;
+            return (this.pixels[pos] & 0xf) / 15.0;
     }
     
     set(offset: number, value: number): void {
-        const pos = offset >>> 1;
-        const mod = offset % 2;
+        const filterBytes = 1 + (offset / this.width)|0;
+        const pos         = filterBytes + (offset >>> 1);
+        const mod         = offset % 2;
 
         let current = this.pixels[pos];
 
@@ -171,22 +193,28 @@ export class PNGPixelComponentAccess4 implements PNGPixelComponentAccess {
 }
 
 export class PNGPixelComponentAccess4R implements PNGPixelComponentAccess {
-    private readonly pixels: Uint8Array;
+    readonly pixels: Uint8Array;
+    private readonly width:  number;
 
-    constructor(pixels: ArrayBuffer) {
-        this.pixels = new Uint8Array(pixels);
+    constructor(pixels: Uint8Array, width: number) {
+        this.pixels = pixels;
+        this.width  = width;
     }
 
     get(offset: number): number {
+        const filterBytes = 1 + (offset / this.width)|0;
+        const pos         = filterBytes + (offset >>> 1);
+
         if (offset % 2 === 0)
-            return (this.pixels[offset >>> 1] >>> 4);
+            return (this.pixels[pos] >>> 4);
         else
-            return (this.pixels[offset >>> 1] & 0xf);
+            return (this.pixels[pos] & 0xf);
     }
     
     set(offset: number, value: number): void {
-        const pos = offset >>> 1;
-        const mod = offset % 2;
+        const filterBytes = 1 + (offset / this.width)|0;
+        const pos         = filterBytes + (offset >>> 1);
+        const mod         = offset % 2;
 
         let current = this.pixels[pos];
 
@@ -204,67 +232,61 @@ export class PNGPixelComponentAccess4R implements PNGPixelComponentAccess {
 }
 
 export class PNGPixelComponentAccess8 implements PNGPixelComponentAccess {
-    private readonly pixels: Uint8Array;
+    readonly pixels: Uint8Array;
+    private readonly width:  number;
 
-    constructor(pixels: ArrayBuffer) {
-        this.pixels = new Uint8Array(pixels);
+    constructor(pixels: Uint8Array, width: number) {
+        this.pixels = pixels;
+        this.width  = width;
     }
 
     get(offset: number): number {
-        return this.pixels[offset] / 255.0;
+        const filterBytes = 1 + (offset / this.width)|0;
+        return this.pixels[filterBytes + offset] / 255.0;
     }
     
     set(offset: number, value: number): void {
-        this.pixels[offset] = (value * 255.0) & 0xff;
+        const filterBytes = 1 + (offset / this.width)|0;
+        this.pixels[filterBytes + offset] = (value * 255.0) & 0xff;
     }
 }
 
 export class PNGPixelComponentAccess8R implements PNGPixelComponentAccess {
-    private readonly pixels: Uint8Array;
+    readonly pixels: Uint8Array;
+    private readonly width:  number;
 
-    constructor(pixels: ArrayBuffer) {
-        this.pixels = new Uint8Array(pixels);
+    constructor(pixels: Uint8Array, width: number) {
+        this.pixels = pixels;
+        this.width  = width;
     }
 
     get(offset: number): number {
-        return this.pixels[offset];
+        const filterBytes = 1 + (offset / this.width)|0;
+        return this.pixels[filterBytes + offset];
     }
     
     set(offset: number, value: number): void {
-        this.pixels[offset] = value & 0xff;
+        const filterBytes = 1 + (offset / this.width)|0;
+        this.pixels[filterBytes + offset] = value & 0xff;
     }
-}
-
-const isLittleEndian = new Uint8Array(new Uint32Array([0x12345678]).buffer)[0] === 0x78;
-
-export function networkOrderToNativeOrderUint16(pixels: ArrayBuffer): ArrayBuffer {
-    if (!isLittleEndian)
-        return pixels;
-
-    const pixels8 = new Uint8Array(pixels);
-    const length  = pixels8.byteLength;
-
-    for (let i = 0; i < length; i += 2) {
-        const tmp    = pixels8[i];
-        pixels8[i]   = pixels8[i+1];
-        pixels8[i+1] = tmp;
-    }
-
-    return pixels;
 }
 
 export class PNGPixelComponentAccess16 implements PNGPixelComponentAccess {
-    private readonly pixels: Uint16Array;
+    readonly pixels: DataView;
+    private readonly width:  number;
 
-    constructor(pixels: ArrayBuffer) {
-        this.pixels  = new Uint16Array(pixels);
+    constructor(pixels: DataView, width: number) {
+        this.pixels = pixels;
+        this.width  = width;
     }
 
     get(offset: number): number {
-        return this.pixels[offset] / 65535.0;
+        const filterBytes = 1 + (offset / this.width)|0;
+        return this.pixels.getUint16(filterBytes + (offset << 1)) / 65535.0;
     }
     
     set(offset: number, value: number): void {
-        this.pixels[offset] = (value * 65535.0) & 0xffff;
+        const filterBytes = 1 + (offset / this.width)|0;
+        this.pixels.setUint16(filterBytes + (offset << 1), (value * 65535.0) & 0xffff);
     }
 }

@@ -24,34 +24,37 @@
  * @LICENSE_HEADER_END@
  */
 
-import { PNGImage }          from "./PNGImage";
-import { RGBA }              from "./ChunkPalette";
-import { ChunkTransparency } from "./ChunkTransparency";
+import { PNGImage }                from "./PNGImage";
+import { RGBA }                    from "./ChunkPalette";
+import { ChunkHeader }             from "./Chunk";
+import { ChunkTransparency }       from "./ChunkTransparency";
+import { PNGPixelComponentAccess } from "./PNGPixelComponentAccess";
 
 export class PNGImageRGB implements PNGImage {
-    width:  number;
-    height: number;
+    width:        number;
+    height:       number;
+    pixelsAccess: PNGPixelComponentAccess;
+    header:       ChunkHeader;
 
     getPixel:  (x: number, y: number) => Readonly<RGBA>;
     copyPixel: (x: number, y: number, rgba: RGBA) => RGBA;
     setPixel:  (x: number, y: number, rgba: Readonly<RGBA>) => void;
 
-    constructor(width: number, height: number, pixels: Uint8Array | Uint16Array, transparency?: ChunkTransparency) {
+    constructor(header: ChunkHeader, width: number, height: number, pixels: PNGPixelComponentAccess, transparency?: ChunkTransparency) {
         const w                = width;
         const transparentIndex = transparency? { r: transparency.alphas[0], g: transparency.alphas[1], b: transparency.alphas[2] }: null;
-        const sixteenBits      = pixels instanceof Uint16Array;
-        const divider          = sixteenBits? 65535.0: 255.0;
-        const mask             = sixteenBits? 0xffff: 0xff;
 
-        this.width  = width;
-        this.height = height;
+        this.width        = width;
+        this.height       = height;
+        this.pixelsAccess = pixels;
+        this.header       = header;
 
         this.getPixel = function(x, y) {
             const position = ((y * w) + x) * 3;
             const rgba = {
-                r: pixels[position] / divider,
-                g: pixels[position + 1] / divider,
-                b: pixels[position + 2] / divider,
+                r: pixels.get(position),
+                g: pixels.get(position + 1),
+                b: pixels.get(position + 2),
                 a: 1.0,
             };
 
@@ -65,9 +68,9 @@ export class PNGImageRGB implements PNGImage {
 
         this.copyPixel = function(x, y, rgba: RGBA): RGBA {
             const position = ((y * w) + x) * 3;
-            rgba.r = pixels[position] / divider;
-            rgba.g = pixels[position + 1] / divider;
-            rgba.b = pixels[position + 2] / divider;
+            rgba.r = pixels.get(position);
+            rgba.g = pixels.get(position + 1);
+            rgba.b = pixels.get(position + 2);
             rgba.a = 1.0;
 
             if (transparentIndex) {
@@ -83,9 +86,9 @@ export class PNGImageRGB implements PNGImage {
 
             if (rgba.a === 0) {
                 if (transparentIndex && transparentIndex.r === rgba.r &&  transparentIndex.g === rgba.g &&  transparentIndex.b === rgba.b) {
-                    pixels[position]     = (transparentIndex.r * divider) & mask;
-                    pixels[position + 1] = (transparentIndex.g * divider) & mask;
-                    pixels[position + 2] = (transparentIndex.b * divider) & mask;
+                    pixels.set(position,     transparentIndex.r);
+                    pixels.set(position + 1, transparentIndex.g);
+                    pixels.set(position + 2, transparentIndex.b);
                     return;
                 }
             }
@@ -93,64 +96,72 @@ export class PNGImageRGB implements PNGImage {
                 throw new Error("Image doesn't support alpha channel");
             }
 
-            pixels[position]     = (rgba.r * divider) & mask;
-            pixels[position + 1] = (rgba.g * divider) & mask;
-            pixels[position + 2] = (rgba.b * divider) & mask;
+            pixels.set(position,     rgba.r);
+            pixels.set(position + 1, rgba.g);
+            pixels.set(position + 2, rgba.b);
         };
     }
 
     get hasPalette(): boolean {
         return false;
     }
+
+    get pixels(): Uint8Array | DataView {
+        return this.pixelsAccess.pixels;     
+    }
 }
 
 export class PNGImageRGBA implements PNGImage {
-    width:  number;
-    height: number;
+    width:        number;
+    height:       number;
+    pixelsAccess: PNGPixelComponentAccess;
+    header:       ChunkHeader;
 
     getPixel:  (x: number, y: number) => Readonly<RGBA>;
     copyPixel: (x: number, y: number, rgba: RGBA) => RGBA;
     setPixel:  (x: number, y: number, rgba: Readonly<RGBA>) => void;
 
-    constructor(width: number, height: number, pixels: Uint8Array | Uint16Array) {
+    constructor(header: ChunkHeader, width: number, height: number, pixels: PNGPixelComponentAccess) {
         const w           = width;
-        const sixteenBits = pixels instanceof Uint16Array;
-        const divider     = sixteenBits? 65535.0: 255.0;
-        const mask        = sixteenBits? 0xffff: 0xff;
-
-        this.width  = width;
-        this.height = height;
+        this.width        = width;
+        this.height       = height;
+        this.pixelsAccess = pixels;
+        this.header       = header;
 
         this.getPixel = function(x, y) {
             const position = ((y * w) + x) * 4;
 
             return {
-                r: pixels[position]     / divider,
-                g: pixels[position + 1] / divider,
-                b: pixels[position + 2] / divider,
-                a: pixels[position + 3] / divider
+                r: pixels.get(position),
+                g: pixels.get(position + 1),
+                b: pixels.get(position + 2),
+                a: pixels.get(position + 3)
             };
         };
 
         this.copyPixel = function(x, y, rgba: RGBA): RGBA {
             const position = ((y * w) + x) * 4;
-            rgba.r = pixels[position]     / divider;
-            rgba.g = pixels[position + 1] / divider;
-            rgba.b = pixels[position + 2] / divider;
-            rgba.a = pixels[position + 3] / divider;
+            rgba.r = pixels.get(position);
+            rgba.g = pixels.get(position + 1);
+            rgba.b = pixels.get(position + 2);
+            rgba.a = pixels.get(position + 3);
             return rgba;
         };
 
         this.setPixel = function(x, y, rgba: Readonly<RGBA>): void {
             const position       = ((y * w) + x) * 4;
-            pixels[position]     = (rgba.r * divider) & mask;
-            pixels[position + 1] = (rgba.g * divider) & mask;
-            pixels[position + 2] = (rgba.b * divider) & mask;
-            pixels[position + 3] = (rgba.a * divider) & mask;
+            pixels.set(position,     rgba.r);
+            pixels.set(position + 1, rgba.g);
+            pixels.set(position + 2, rgba.b);
+            pixels.set(position + 3, rgba.a);
         };
     }
 
     get hasPalette(): boolean {
         return false;
+    }
+
+    get pixels(): Uint8Array | DataView {
+        return this.pixelsAccess.pixels;     
     }
 }

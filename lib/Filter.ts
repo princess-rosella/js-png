@@ -27,37 +27,34 @@
 const abs   = Math.abs;
 const floor = Math.floor;
 
-export function unfilter1(xComparison: number, source: Uint8Array, dest: Uint8Array, offset: number): void {
+export function unfilter1(xComparison: number, dest: Uint8Array, offset: number, byteWidth: number): void {
     const xBiggerThan = xComparison - 1;
-    const byteWidth   = source.length;
     
     for (let x = 0; x < byteWidth; x++) {
-        const rawByte = source[x];
+        const rawByte = dest[offset + x];
         const f1Left  = x > xBiggerThan ? dest[offset + x - xComparison] : 0;
 
         dest[offset + x] = rawByte + f1Left;
     }  
 }
 
-export function unfilter2(source: Uint8Array, dest: Uint8Array, offset: number, previousLineOffset?: number) {
-    const byteWidth       = source.length;
+export function unfilter2(dest: Uint8Array, offset: number, previousLineOffset: number | undefined, byteWidth: number) {
     const hasPreviousLine = previousLineOffset !== undefined;
 
     for (let x = 0; x < byteWidth; x++) {
-        const rawByte = source[x];
+        const rawByte = dest[offset + x];
         const f2Up    = hasPreviousLine ? dest[previousLineOffset! + x] : 0;
 
         dest[offset + x] = rawByte + f2Up;
     }
 }
 
-export function unfilter3(xComparison: number, source: Uint8Array, dest: Uint8Array, offset: number, previousLineOffset?: number) {
+export function unfilter3(xComparison: number, dest: Uint8Array, offset: number, previousLineOffset: number | undefined, byteWidth: number) {
     const xBiggerThan     = xComparison - 1;
-    const byteWidth       = source.length;
     const hasPreviousLine = previousLineOffset !== undefined;
 
     for (let x = 0; x < byteWidth; x++) {
-        const rawByte = source[x];
+        const rawByte = dest[offset + x];
         const f3Up    = hasPreviousLine ? dest[previousLineOffset! + x] : 0;
         const f3Left  = x > xBiggerThan ? dest[offset + x - xComparison] : 0;
         const f3Add   = floor((f3Left + f3Up) / 2);
@@ -81,13 +78,12 @@ function paethPredictor(left: number, above: number, upLeft: number) {
     return upLeft;
 }
 
-export function unfilter4(xComparison: number, source: Uint8Array, dest: Uint8Array, offset: number, previousLineOffset?: number) {
+export function unfilter4(xComparison: number, dest: Uint8Array, offset: number, previousLineOffset: number | undefined, byteWidth: number) {
     const xBiggerThan     = xComparison - 1;
-    const byteWidth       = source.length;
     const hasPreviousLine = previousLineOffset !== undefined;
   
     for (let x = 0; x < byteWidth; x++) {
-        const rawByte = source[x];
+        const rawByte  = dest[offset + x];
         const f4Up     = hasPreviousLine ? dest[previousLineOffset! + x] : 0;
         const f4Left   = x > xBiggerThan ? dest[offset + x - xComparison] : 0;
         const f4UpLeft = x > xBiggerThan && hasPreviousLine ? dest[previousLineOffset! + x - xComparison] : 0;

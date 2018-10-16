@@ -31,10 +31,31 @@ export class ChunkPhysicalPixels extends Chunk {
     x:    number;
     y:    number;
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
-        this.x    = view.getUint32(offset + 0, false);
-        this.y    = view.getUint32(offset + 4, false);
-        this.unit = <PNGUnit>view.getUint8(offset + 8);
+    constructor(x: number, y: number, unit: PNGUnit) {
+        super("pHYs");
+        this.x    = x;
+        this.y    = y;
+        this.unit = unit;
+    }
+
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkPhysicalPixels {
+        return new ChunkPhysicalPixels(
+            view.getUint32(offset + 0, false),
+            view.getUint32(offset + 4, false),
+            <PNGUnit>view.getUint8(offset + 8));
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        return 9;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+        view.setUint32(offset + 0, this.x, false);
+        view.setUint32(offset + 4, this.y, false);
+        view.setUint8 (offset + 8, this.unit);
+    }
+
+    chunkClone(): ChunkPhysicalPixels {
+        return new ChunkPhysicalPixels(this.x, this.y, this.unit);
     }
 }

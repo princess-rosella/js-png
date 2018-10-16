@@ -25,7 +25,7 @@
  */
 
 import { Chunk, ChunkHeader } from "./Chunk";
-import { readLatin1String } from "./Latin1";
+import { readLatin1String, writeLatin1String } from "./EncodingLatin1";
 import { inflateSync as inflate } from "zlib";
 
 export class ChunkICCProfile extends Chunk {
@@ -33,13 +33,39 @@ export class ChunkICCProfile extends Chunk {
     compression: number;
     profile:     ArrayBuffer;
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
-        const end = offset + length;
-        [this.name, offset] = readLatin1String(view, offset, end);
-        this.compression = view.getUint8(offset++);
+    constructor(name: string, compression: number, profile: ArrayBuffer) {
+        super("iCCP");
+        this.name        = name;
+        this.compression = compression;
+        this.profile     = profile;
+    }
 
-        const buffer = inflate(view.buffer.slice(offset, end));
-        this.profile = buffer.buffer.slice(buffer.byteOffset, buffer.byteLength);
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkICCProfile {
+        const end = offset + length;
+        let name: string;
+        [name, offset] = readLatin1String(view, offset, end);
+        let compression = view.getUint8(offset++);
+
+        const buffer  = inflate(view.buffer.slice(offset, end));
+        const profile = buffer.buffer.slice(buffer.byteOffset, buffer.byteLength);
+
+        return new ChunkICCProfile(name, compression, profile);
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        return this.name.length + 2 + this.profile.byteLength;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+        offset = writeLatin1String(view, offset, this.name);
+        view.setUint8(offset++, this.compression);
+
+        const dest = new Uint8Array(view.buffer, view.byteOffset + offset,this.profile.byteLength);
+        const src  = new Uint8Array(this.profile);
+        dest.set(src);
+    }
+
+    chunkClone(): ChunkICCProfile {
+        return new ChunkICCProfile(this.name, this.compression, this.profile);
     }
 }

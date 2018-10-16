@@ -27,22 +27,27 @@
 import { PNGImage }                from "./PNGImage";
 import { PNGPixelComponentAccess } from "./PNGPixelComponentAccess"
 import { RGBA }                    from "./ChunkPalette";
+import { ChunkHeader }             from "./Chunk";
 import { ChunkTransparency }       from "./ChunkTransparency";
 
 export class PNGImageGray implements PNGImage {
-    width:  number;
-    height: number;
+    header:       ChunkHeader;
+    width:        number;
+    height:       number;
+    pixelsAccess: PNGPixelComponentAccess;
 
     getPixel:  (x: number, y: number) => Readonly<RGBA>;
     copyPixel: (x: number, y: number, rgba: RGBA) => RGBA;
     setPixel:  (x: number, y: number, rgba: Readonly<RGBA>) => void;
 
-    constructor(width: number, height: number, widthLine: number, pixels: PNGPixelComponentAccess, transparency?: ChunkTransparency) {
+    constructor(header: ChunkHeader, width: number, height: number, widthLine: number, pixels: PNGPixelComponentAccess, transparency?: ChunkTransparency) {
         const w                = widthLine;
         const transparentIndex = transparency? transparency.alphas[0]: 2.0;
 
-        this.width  = width;
-        this.height = height;
+        this.header       = header;
+        this.width        = width;
+        this.height       = height;
+        this.pixelsAccess = pixels;
 
         this.getPixel = function(x, y) {
             const gray = pixels.get((y * w) + x);
@@ -80,29 +85,33 @@ export class PNGImageGray implements PNGImage {
     get hasPalette(): boolean {
         return false;
     }
+
+    get pixels(): Uint8Array | DataView {
+        return this.pixelsAccess.pixels;     
+    }
 }
 
 export class PNGImageGrayAlpha implements PNGImage {
-    width:  number;
-    height: number;
+    header:       ChunkHeader;
+    width:        number;
+    height:       number;
+    pixelsAccess: PNGPixelComponentAccess;
 
     getPixel:  (x: number, y: number) => Readonly<RGBA>;
     copyPixel: (x: number, y: number, rgba: RGBA) => RGBA;
     setPixel:  (x: number, y: number, rgba: Readonly<RGBA>) => void;
 
-    constructor(width: number, height: number, pixels: Uint8Array | Uint16Array) {
+    constructor(header: ChunkHeader, width: number, height: number, pixels: PNGPixelComponentAccess) {
         const w           = width;
-        const sixteenBits = pixels instanceof Uint16Array;
-        const divider     = sixteenBits? 65535.0: 255.0;
-        const mask        = sixteenBits? 0xffff: 0xff;
-
-        this.width  = width;
-        this.height = height;
+        this.width        = width;
+        this.height       = height;
+        this.pixelsAccess = pixels;
+        this.header       = header;
 
         this.getPixel = function(x, y) {
             const position = ((y * w) + x) * 2;
-            const gray     = pixels[position]     / divider;
-            const alpha    = pixels[position + 1] / divider;
+            const gray     = pixels.get(position);
+            const alpha    = pixels.get(position + 1);
 
             return {
                 r: gray,
@@ -114,19 +123,23 @@ export class PNGImageGrayAlpha implements PNGImage {
 
         this.copyPixel = function(x, y, rgba: RGBA): RGBA {
             const position = ((y * w) + x) * 2;
-            rgba.r = rgba.g = rgba.b = (pixels[position] / divider);
-            rgba.a = (pixels[position + 1] / divider);
+            rgba.r = rgba.g = rgba.b = (pixels.get(position));
+            rgba.a = (pixels.get(position + 1));
             return rgba;
         };
 
         this.setPixel = function(x, y, rgba: Readonly<RGBA>): void {
             const position = ((y * w) + x) * 2;
-            pixels[position]     = (rgba.g * divider) & mask;
-            pixels[position + 1] = (rgba.a * divider) & mask;
+            pixels.set(position,     rgba.g);
+            pixels.set(position + 1, rgba.a);
         };
     }
 
     get hasPalette(): boolean {
         return false;
+    }
+
+    get pixels(): Uint8Array | DataView {
+        return this.pixelsAccess.pixels;     
     }
 }

@@ -32,29 +32,62 @@ export class ChunkSignificantBits extends Chunk {
     b?: number;
     a?: number;
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
+    constructor(r: number | undefined, g: number | undefined, b: number | undefined, a: number | undefined) {
+        super("sBIT");
+        this.r = r;
+        this.g = g;
+        this.b = b;
+        this.a = a;
+    }
 
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkSignificantBits {
+        if (header.colorType === ColorType.Grayscale)
+            return new ChunkSignificantBits(undefined, view.getUint8(offset), undefined, undefined);
+        else if (header.colorType === ColorType.GrayscaleAlpha)
+            return new ChunkSignificantBits(undefined, view.getUint8(offset), undefined, view.getUint8(offset + 1));
+        else if (header.colorType === ColorType.RGB || header.colorType === ColorType.Palette)
+            return new ChunkSignificantBits(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), undefined);
+        else if (header.colorType === ColorType.RGBA)
+            return new ChunkSignificantBits(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3));
+        else
+            throw new Error("Unsupported color type");
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        if (header.colorType === ColorType.Grayscale)
+            return 1;
+        else if (header.colorType === ColorType.GrayscaleAlpha)
+            return 2;
+        else if (header.colorType === ColorType.RGB || header.colorType === ColorType.Palette)
+            return 3;
+        else if (header.colorType === ColorType.RGBA)
+            return 4;
+        else
+            throw new Error("Unsupported color type");
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
         if (header.colorType === ColorType.Grayscale) {
-            this.g = view.getUint8(offset);
+            view.setUint8(offset, this.g!);
         }
         else if (header.colorType === ColorType.GrayscaleAlpha) {
-            this.g = view.getUint8(offset);
-            this.a = view.getUint8(offset + 1);
+            view.setUint8(offset,     this.g!);
+            view.setUint8(offset + 1, this.a!);
         }
         else if (header.colorType === ColorType.RGB || header.colorType === ColorType.Palette) {
-            this.r = view.getUint8(offset);
-            this.g = view.getUint8(offset + 1);
-            this.b = view.getUint8(offset + 2);
+            view.setUint8(offset,     this.r!);
+            view.setUint8(offset + 1, this.g!);
+            view.setUint8(offset + 2, this.b!);
         }
         else if (header.colorType === ColorType.RGBA) {
-            this.r = view.getUint8(offset);
-            this.g = view.getUint8(offset + 1);
-            this.b = view.getUint8(offset + 2);
-            this.a = view.getUint8(offset + 3);
+            view.setUint8(offset,     this.r!);
+            view.setUint8(offset + 1, this.g!);
+            view.setUint8(offset + 2, this.b!);
+            view.setUint8(offset + 3, this.a!);
         }
-        else {
-            throw new Error("Unsupported color type");
-        }
+    }
+
+    chunkClone(): ChunkSignificantBits {
+        return new ChunkSignificantBits(this.r, this.g, this.b, this.a);
     }
 }

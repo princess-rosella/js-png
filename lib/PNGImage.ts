@@ -25,15 +25,23 @@
  */
 
 import { RGBA } from "./ChunkPalette";
+import { ChunkHeader } from "./Chunk";
 
 export interface PNGImage {
     readonly width:  number;
     readonly height: number;
     readonly hasPalette: boolean;
+    readonly pixels: Uint8Array | DataView;
+    readonly header: ChunkHeader;
 
     getPixel (x: number, y: number): Readonly<RGBA>;
     copyPixel(x: number, y: number, rgba: RGBA): RGBA;
     setPixel (x: number, y: number, rgba: Readonly<RGBA>): void;
+}
+
+export interface PNGImageWithPalette extends PNGImage {
+    getIndex(x: number, y: number): number;
+    setIndex(x: number, y: number, index: number): void;
 }
 
 const ceil = Math.ceil;
@@ -44,4 +52,23 @@ export function computeLineByteWidth(width: number, bitDepth: number, componentC
 
 export function computeImageSize(width: number, height: number, bitDepth: number, componentCount: number) {
     return (computeLineByteWidth(width, bitDepth, componentCount) + 1) * height;
+}
+
+export function computeLinePixelWidth(width: number, bitDepth: number): number {
+    switch (bitDepth) {
+    case 1:
+        if ((width % 8) !== 0)
+            width += (8 - (width % 8));
+        break;
+    case 2:
+        if ((width % 4) !== 0)
+            width += (4 - (width % 4));
+        break;
+    case 4:
+        if ((width % 2) !== 0)
+            width += (2 - (width % 2));
+        break;
+    }
+
+    return width;
 }

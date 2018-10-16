@@ -24,7 +24,7 @@
  * @LICENSE_HEADER_END@
  */
 
-import { readLatin1String } from "./Latin1";
+import { readLatin1String, writeLatin1String, isLatin1 } from "./EncodingLatin1";
 
 export function readUtf8String(view: DataView, offset: number, end: number): [string, number] {
     let str = "";
@@ -82,7 +82,57 @@ export function readUtf8String(view: DataView, offset: number, end: number): [st
     return [str, offset];
 }
 
-export function isValidUtf8(view: DataView, offset: number, end: number) {
+export function lengthUtf8String(str: string): number {
+    let   count  = 0;
+    const length = str.length;
+
+    for (let i = 0; i < length; i++) {
+        const ch = str.charCodeAt(i);
+        if (ch <= 0x7f)
+            count++;
+        else if (ch <= 0x7ff)
+            count += 2;
+        else if (ch <= 0xffff)
+            count += 3;
+        else
+            count += 4;
+    }
+
+    return count;
+}
+
+export function writeUtf8String(view: DataView, offset: number, str: string, terminate: boolean = true): number {
+    const length = str.length;
+
+    for (let i = 0; i < length; i++) {
+        const ch = str.charCodeAt(i);
+
+        if (ch <= 0x7f)
+            view.setUint8(offset++, ch);
+        else if (ch <= 0x7ff) {
+            view.setUint8(offset++, (ch >>> 6) & 0x1f | 0xc0);
+            view.setUint8(offset++, (ch >>> 0) & 0x3f | 0x80);
+        }
+        else if (ch <= 0xffff) {
+            view.setUint8(offset++, (ch >>> 12) & 0x0f | 0xe0);
+            view.setUint8(offset++, (ch >>>  6) & 0x3f | 0x80);
+            view.setUint8(offset++, (ch >>>  0) & 0x3f | 0x80);
+        }
+        else {
+            view.setUint8(offset++, (ch >>> 18) & 0x07 | 0xe0);
+            view.setUint8(offset++, (ch >>> 12) & 0x3f | 0x80);
+            view.setUint8(offset++, (ch >>>  6) & 0x3f | 0x80);
+            view.setUint8(offset++, (ch >>>  0) & 0x3f | 0x80);
+        }
+    }
+
+    if (terminate)
+        view.setUint8(0, offset++);
+    
+    return offset;
+}
+
+export function isValidUtf8Data(view: DataView, offset: number, end: number) {
     while (offset < end) {
         const code1 = view.getUint8(offset++);
         if (code1 == 0)
@@ -128,8 +178,15 @@ export function isValidUtf8(view: DataView, offset: number, end: number) {
 }
 
 export function readLatin1OrUtf8String(view: DataView, offset: number, end: number): [string, number] {
-    if (isValidUtf8(view, offset, end))
+    if (isValidUtf8Data(view, offset, end))
         return readUtf8String(view, offset, end);
     else
         return readLatin1String(view, offset, end);
+}
+
+export function writeLatin1OrUtf8String(view: DataView, offset: number, str: string, terminate: boolean = true): number {
+    if (isLatin1(str))
+        return writeLatin1String(view, offset, str, terminate);
+    else
+        return writeUtf8String(view, offset, str, terminate);
 }

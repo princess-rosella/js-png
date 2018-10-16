@@ -29,30 +29,78 @@ import { Chunk, ChunkHeader, ColorType } from "./Chunk";
 export class ChunkTransparency extends Chunk {
     alphas: number[] = []
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
+    constructor(alphas: number[]) {
+        super("tRNS");
+        this.alphas = alphas;
+    }
 
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkTransparency {
         const end     = offset + length;
         const divider = ((1 << header.bitDepth) - 1);
+        const alphas  = <number[]>[];
 
         switch (header.colorType) {
         case ColorType.Palette:
             for (; offset < end; offset++)
-                this.alphas.push(view.getUint8(offset) / 255.0);
+                alphas.push(view.getUint8(offset) / 255.0);
             break;
 
         case ColorType.Grayscale:
-            this.alphas.push(view.getUint16(offset, false) / divider);
+            alphas.push(view.getUint16(offset, false) / divider);
             break;
 
         case ColorType.RGB:
-            this.alphas.push(view.getUint16(offset + 0) / divider);
-            this.alphas.push(view.getUint16(offset + 2) / divider);
-            this.alphas.push(view.getUint16(offset + 4) / divider);
+            alphas.push(view.getUint16(offset + 0) / divider);
+            alphas.push(view.getUint16(offset + 2) / divider);
+            alphas.push(view.getUint16(offset + 4) / divider);
             break;
 
         default:
             throw new Error("Unsupported transparency");
         }
+
+        return new ChunkTransparency(alphas);
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        switch (header.colorType) {
+        case ColorType.Palette:
+            return this.alphas.length;
+
+        case ColorType.Grayscale:
+            return 2;
+
+        case ColorType.RGB:
+            return 6;
+
+        default:
+            throw new Error("Unsupported transparency");
+        }
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+        const divider = ((1 << header.bitDepth) - 1);
+
+        switch (header.colorType) {
+        case ColorType.Palette:
+            for (const alpha of this.alphas)
+                view.setUint8(offset++, alpha * 255.0);
+            break;
+
+        case ColorType.Grayscale:
+        case ColorType.RGB:
+            for (const alpha of this.alphas) {
+                view.setUint16(offset, (alpha * divider)|0, false);
+                offset += 2;
+            }
+            break;
+
+        default:
+            throw new Error("Unsupported transparency");
+        }
+    }
+
+    chunkClone(): ChunkTransparency {
+        return new ChunkTransparency(this.alphas.slice(0));
     }
 }

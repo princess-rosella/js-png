@@ -36,15 +36,46 @@ export class ChunkChromatic extends Chunk {
     blueX:       number;
     blueY:       number;
 
-    constructor(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader) {
-        super(length, type, crc, view, offset, header);
-        this.whitePointX = view.getUint32(offset,      false);
-        this.whitePointY = view.getUint32(offset +  4, false);
-        this.redX        = view.getUint32(offset +  8, false);
-        this.redY        = view.getUint32(offset + 12, false);
-        this.greenX      = view.getUint32(offset + 16, false);
-        this.greenY      = view.getUint32(offset + 20, false);
-        this.blueX       = view.getUint32(offset + 24, false);
-        this.blueY       = view.getUint32(offset + 28, false);
+    constructor(whitePointX: number, whitePointY: number, redX: number, redY: number, greenX: number, greenY: number, blueX: number, blueY: number) {
+        super("cHRM");
+        this.whitePointX = whitePointX;
+        this.whitePointY = whitePointY;
+        this.redX        = redX;
+        this.redY        = redY;
+        this.greenX      = greenX;
+        this.greenY      = greenY;
+        this.blueX       = blueX;
+        this.blueY       = blueY;
+    }
+
+    static parse(length: number, type: string, crc: number, view: DataView, offset: number, header: ChunkHeader): ChunkChromatic {
+        return new ChunkChromatic(
+            view.getUint32(offset,      false),
+            view.getUint32(offset +  4, false),
+            view.getUint32(offset +  8, false),
+            view.getUint32(offset + 12, false),
+            view.getUint32(offset + 16, false),
+            view.getUint32(offset + 20, false),
+            view.getUint32(offset + 24, false),
+            view.getUint32(offset + 28, false));
+    }
+
+    chunkComputeLength(header: ChunkHeader): number {
+        return 32;
+    }
+
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+        view.setUint32(offset,      this.whitePointX, false);
+        view.setUint32(offset +  4, this.whitePointY, false);
+        view.setUint32(offset +  8, this.redX,        false);
+        view.setUint32(offset + 12, this.redY,        false);
+        view.setUint32(offset + 16, this.greenX,      false);
+        view.setUint32(offset + 20, this.greenY,      false);
+        view.setUint32(offset + 24, this.blueX,       false);
+        view.setUint32(offset + 28, this.blueY,       false);
+    }
+
+    chunkClone(): ChunkChromatic {
+        return new ChunkChromatic(this.whitePointX, this.whitePointY, this.redX, this.redY, this.greenX, this.greenY, this.blueX, this.blueY);
     }
 }
