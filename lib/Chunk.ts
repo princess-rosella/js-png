@@ -181,8 +181,8 @@ export class ChunkPixelData extends Chunk {
         return this.data.byteLength;
     }
 
-    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {   
-        const dest = new Uint8Array(view.buffer, view.byteOffset + offset, view.byteLength);
+    chunkSave(header: ChunkHeader, view: DataView, offset: number): void {
+        const dest = new Uint8Array(view.buffer, view.byteOffset + offset, this.data.byteLength);
         const src  = new Uint8Array(this.data);
         dest.set(src);
     }

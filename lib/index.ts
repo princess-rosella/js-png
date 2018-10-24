@@ -24,7 +24,13 @@
  * @LICENSE_HEADER_END@
  */
 
+export * from "./Chunk";
+export * from "./ChunkPalette";
+export * from "./ChunkPhysicalPixels";
+export * from "./ChunkTransparency";
+export * from "./ChunkText";
+
 export { PNGFile, PNGDelegate } from "./PNGFile";
 export { PNGImage }             from "./PNGImage";
 export { PNGImageRGBA }         from "./PNGImageRGB";
-export { RGBA }                 from "./ChunkPalette";
+export { PNGImageIndexed }      from "./PNGImageIndexed";

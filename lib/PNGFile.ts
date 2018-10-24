@@ -339,7 +339,7 @@ export class PNGFile {
         throw new Error(`Invalid bit depth: ${this.bitDepth}`);
     }
 
-    private raxPixels(): DataView {
+    private rawPixels(): DataView | null {
         let coffset = 0;
         let ccount  = 0;
         let clength = 0;
@@ -351,6 +351,9 @@ export class PNGFile {
             ccount  += 1;
             clength += (<ChunkPixelData>chunk).data.byteLength;
         }
+
+        if (ccount === 0)
+            return null;
 
         const cbuffer = ccount === 1? (<ChunkPixelData>this.firstChunk("IDAT")).data : new ArrayBuffer(clength);
 
@@ -415,7 +418,17 @@ export class PNGFile {
             }];
         }
 
-        const pixels             = this.raxPixels();
+        let pixels = this.rawPixels();
+
+        if (!pixels) {
+            let totalLength = 0;
+
+            for (const pass of passes)
+                totalLength += ((computeLineByteWidth(pass.width, bitDepth, componentCount) + 1) * pass.height);
+
+            pixels = new DataView(new ArrayBuffer(totalLength));
+        }
+
         const pixelSize          = this.pixelSize;
         const images: PNGImage[] = [];
         const transparencyChunk  = <ChunkTransparency>this.firstChunk("tRNS");
@@ -491,7 +504,7 @@ export class PNGFile {
 
     updateImage(image: PNGImage) {
         let   indexOfFirstPixelData = this.chunks.findIndex((chunk) => chunk.type === "IDAT" || chunk.type === "IEND");
-        const newChunks = this.chunks.filter((chunk) => chunk.type === "IDAT");
+        const newChunks = this.chunks.filter((chunk) => chunk.type !== "IDAT");
 
         const compressedBuffer = deflateSync(image.pixels.buffer, { level: 9 });
         const blockSize        = 32767;
